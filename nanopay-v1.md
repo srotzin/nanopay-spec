@@ -24,13 +24,16 @@
 10. [Security Considerations](#10-security-considerations)
 11. [x402 Compatibility](#11-x402-compatibility)
 12. [Reference Implementation](#12-reference-implementation)
-13. [Authors and License](#13-authors-and-license)
+13. [Roadmap to v1.1](#13-roadmap-to-v11--nanoverse-hardware-layer)
+14. [Authors and License](#14-authors-and-license)
 
 ---
 
 ## 1. Abstract
 
-Hive Nanopay is a two-tier nanopayment standard designed for agentic commerce, post-quantum survivability, and cross-rail portability. It defines a signed receipt envelope structure, a tiered pricing model, and an HTTP surface compatible with the x402 payment protocol.
+Hive Nanopay is the two-tier post-quantum nanopayment standard that powers the Hive NanoVerse — five core primitives (AGENT-WALLET, OFFCHAIN-AUTH, FACILITATOR-SWITCH, ENTROPY-RECEIPT, RATE-NEGOTIATOR) running on three bulletproof handshake protocols (SILICON-X402, THERMAL-ATTEST, ELECTRON-X402). v1.0 ships the software primitives. v1.1 ships the hardware-attested protocols.
+
+Hive Nanopay is designed for agentic commerce, post-quantum survivability, and cross-rail portability. It defines a signed receipt envelope structure, a tiered pricing model, and an HTTP surface compatible with the x402 payment protocol.
 
 **Tier 1 — PQ (default)**
 
@@ -68,8 +71,25 @@ The compliance burden on agentic infrastructure is also increasing. MiCA Art 34,
 
 ## 3. Terminology
 
+Hive Nanopay v1.0 exposes five independently invokable and composable core primitives. Receipt envelopes are emitted by the ENTROPY-RECEIPT primitive. Authorization happens via OFFCHAIN-AUTH under EIP-3009 and the PQ combiner. Cross-rail routing is handled by FACILITATOR-SWITCH. Each peer holds an AGENT-WALLET. Pricing tiers are negotiated by RATE-NEGOTIATOR. Each primitive is independently invokable and composable. The full reference is the canonical Hive Nanopayment Architecture document (May 2026).
+
+**AGENT-WALLET**  
+Hardware-secured MPC agent wallet with programmable policy controls, thermal attestation gating, and quantum-safe key management. Every agent gets one, with key shares locked in HiveComb PUF silicon in v1.1. In Hive Nanopay v1.0, AGENT-WALLET is the DID-bound key store (`did:hivemorph:w2loren:0x6b11b1bcaf253c`) that holds the Ed25519, ML-DSA-65, and SLH-DSA signing keys.
+
+**OFFCHAIN-AUTH**  
+Gas-free, instant payment authorization via EIP-3009 meta-transactions with layered post-quantum signatures. In v1.0, OFFCHAIN-AUTH maps to the PQ tier receipt envelope already shipping: Ed25519 + ML-DSA-65 + SLH-DSA-PURE-SHAKE-256F under the all-of-three EUF-CMA combiner.
+
+**FACILITATOR-SWITCH**  
+Intelligent multi-facilitator routing with KLJN-secured handoff (v1.1), automatic failover, and latency-based selection. In v1.0, FACILITATOR-SWITCH maps to the live `POST /v1/nanopay/cross-rail` endpoint that issues one receipt verifiable across Base, Solana, and Ethereum.
+
+**ENTROPY-RECEIPT**  
+Immutable, thermodynamically-backed payment receipt with ring-signature privacy. In v1.0, ENTROPY-RECEIPT is the TBR-signed receipt with canonical hash computed as `sha256` of the canonical JSON form of the payload (sorted keys, no spaces between separators). The thermal Johnson-Nyquist entropy layer is v1.1 — see Section 13.
+
+**RATE-NEGOTIATOR**  
+Real-time rate negotiation engine with Bayesian price discovery, escrow protection, and MEV-resistant commit-reveal. In v1.0, RATE-NEGOTIATOR ships as the two-tier pricing system: PQ default ($0.0003 floor) and lite opt-in ($0.000001 floor via `X-Hive-Nanopay-Tier: lite` header). Full Bayesian and commit-reveal engine ships in v1.1.
+
 **Receipt**  
-A signed JSON document attesting that a specific payment event occurred across one or more rails at a specific timestamp. A receipt is the atomic unit of the Hive Nanopay system. Receipts are immutable after issuance.
+A signed JSON document attesting that a specific payment event occurred across one or more rails at a specific timestamp. A receipt is the atomic unit emitted by the ENTROPY-RECEIPT primitive. Receipts are immutable after issuance.
 
 **Envelope**  
 The cryptographic wrapper inside a receipt. The envelope contains the algorithm identifier, the key identifier (DID), and one or more signatures over the canonical hash of the receipt payload. The envelope structure differs between Tier 1 (PQ) and Tier 2 (lite).
@@ -78,7 +98,7 @@ The cryptographic wrapper inside a receipt. The envelope contains the algorithm 
 A settlement pathway corresponding to a specific blockchain network and asset contract. Each rail has a unique `rail_id` string. A single receipt may include proof entries for multiple rails simultaneously. Active rails are listed in Section 7.
 
 **Tier**  
-One of two operating modes: PQ (default, Tier 1) or lite (opt-in, Tier 2). The tier governs the envelope algorithm set and the price floor.
+One of two operating modes: PQ (default, Tier 1) or lite (opt-in, Tier 2). The tier governs the envelope algorithm set and the price floor. Tier selection is handled by RATE-NEGOTIATOR.
 
 **Combiner**  
 The rule by which multiple component signatures are aggregated into a single validity determination. Hive Nanopay Tier 1 uses `all-of-three`: a receipt envelope is valid if and only if all three component signatures (Ed25519, ML-DSA-65, SLH-DSA) each verify independently against the same message hash under the keys resolved for the declared kid.
@@ -371,6 +391,19 @@ https://hivemorph.onrender.com
 
 All endpoints are HTTPS-only. No HTTP redirect is provided. TLS 1.3 minimum.
 
+### 8.1.1 Endpoint-to-Primitive Mapping
+
+Each endpoint in the Hive Nanopay HTTP surface corresponds to one or more NanoVerse primitives:
+
+| Endpoint | Primitive | Description |
+|---|---|---|
+| `GET /v1/nanopay/bench` | (all five — meta) | Live counters across all primitives |
+| `POST /v1/nanopay/cross-rail` | FACILITATOR-SWITCH | Issue cross-rail receipt |
+| `POST /v1/nanopay/cross-rail/verify` | ENTROPY-RECEIPT + FACILITATOR-SWITCH | Verify receipt hash + rail membership |
+| `GET /v1/nanopay/standard` | (meta) | Spec metadata JSON |
+| Header `X-Hive-Nanopay-Tier: lite` | RATE-NEGOTIATOR | Tier opt-in — lowers price to $0.000001 floor |
+| DID-bound signing (`envelope.kid`) | AGENT-WALLET | Identity and key material for all signatures |
+
 ### 8.2 GET /v1/nanopay/bench
 
 Returns live counters, tier table, active and planned rails, PQ coverage percentage, compliance labels, and batch configuration.
@@ -455,7 +488,7 @@ Returns spec metadata: version, repo URL, x402 extension PR URL, reference imple
   "spec_url": "https://github.com/srotzin/nanopay-spec/blob/main/nanopay-v1.md",
   "repo": "https://github.com/srotzin/nanopay-spec",
   "license": "MIT",
-  "x402_extension_pr": "https://github.com/x402-foundation/x402/pull/NNNN",
+  "x402_extension_pr": "https://github.com/x402-foundation/x402/pull/2401",
   "reference_impl": "https://hivemorph.onrender.com",
   "tiers": ["pq", "lite"],
   "default_tier": "pq",
@@ -623,7 +656,21 @@ curl -s https://hivemorph.onrender.com/v1/nanopay/standard | jq
 
 ---
 
-## 13. Authors and License
+## 13. Roadmap to v1.1 — NanoVerse Hardware Layer
+
+Hive Nanopay v1.0 ships the software primitives of the NanoVerse stack. The three bulletproof handshake protocols (SILICON-X402, THERMAL-ATTEST, ELECTRON-X402) are roadmap items targeted for v1.1. The canonical hardware architecture is specified in full in the Hive Nanopayment Architecture document (May 2026).
+
+**SILICON-X402** (HiveComb PUF Integration): HiveComb devices embed a Physically Unclonable Function in silicon. When the HiveComb integration is complete, AGENT-WALLET key shares will be locked in PUF hardware, and OFFCHAIN-AUTH will include a hardware-derived dual signature (software key + PUF-derived ML-DSA-65 nonce). SILICON-X402 unlocks hardware-anchored payment attestation where a payment is rejected at the facilitator level if the hardware signature does not match the registered PUF response, regardless of software key validity.
+
+**THERMAL-ATTEST** (Johnson-Nyquist Entropy Receipts): Thermal calibration nodes sample Johnson-Nyquist noise from HiveComb semiconductor substrates. The sampled entropy, verified against Landauer's principle, is included in the ENTROPY-RECEIPT as a thermodynamic attestation that binds the receipt to the specific physical device that authorized the payment. THERMAL-ATTEST receipts cannot be replayed or forged because the thermal noise profile of each device is unique.
+
+**ELECTRON-X402** (KLJN Key Exchange for FACILITATOR-SWITCH): Lab-validated Kirchhoff-Law-Johnson-Noise (KLJN) key exchange provides information-theoretic security for facilitator handoff channels. Security does not depend on computational hardness assumptions and is provably secure against any adversary, including quantum computers. Once established, the KLJN-derived channel key encrypts all payment authorizations within the channel. ELECTRON-X402 integration with FACILITATOR-SWITCH enables payment channels where the security of channel establishment is physically guaranteed by the second law of thermodynamics.
+
+All three hardware protocols are covered by provisional patent filings (see PATENTS.md). The full hardware specification, integration roadmap, and patent claim text are in the Hive Nanopayment Architecture document.
+
+---
+
+## 14. Authors and License
 
 **Authors:**  
 Steve Rotzin (HiveryIQ)  
