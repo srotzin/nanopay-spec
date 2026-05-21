@@ -21,7 +21,7 @@ Sections: Abstract, Motivation, Terminology, Pricing Model, PQ Receipt Envelope,
 
 ## x402 Extension PR
 
-[x402-foundation/x402 PR — Hive Nanopay extension](https://github.com/x402-foundation/x402/pull/101)
+[x402-foundation/x402 PR #2401 — Hive Nanopay extension](https://github.com/x402-foundation/x402/pull/2401)
 
 The extension doc proposes Hive Nanopay as an officially recognized x402 extension. PR is filed as draft per CONTRIBUTING.md AI-assisted rules.
 
